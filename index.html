@@ -937,9 +937,14 @@ input, select, textarea { font-family: var(--font-body); }
           <span class="field-error" id="dateError"></span>
         </div>
         <div class="field" id="timeFieldWrap">
-          <label for="time">Time <span class="req">*</span></label>
-          <input type="time" id="time" name="time" />
-          <span class="field-error" id="timeError"></span>
+          <label for="timeFrom">From Time <span class="req">*</span></label>
+          <input type="time" id="timeFrom" name="timeFrom" />
+          <span class="field-error" id="timeFromError"></span>
+        </div>
+        <div class="field" id="timeToFieldWrap">
+          <label for="timeTo">To Time <span class="req">*</span></label>
+          <input type="time" id="timeTo" name="timeTo" />
+          <span class="field-error" id="timeToError"></span>
         </div>
 
         <div class="field full" style="margin-bottom: 0;">
@@ -947,6 +952,13 @@ input, select, textarea { font-family: var(--font-body); }
             <input type="checkbox" id="timeTbd" name="timeTbd" />
             <label for="timeTbd">Time To Be Discussed</label>
           </div>
+        </div>
+
+        <div class="field full">
+          <label for="turfCost">Total Turf Cost <span class="form-hint" style="font-weight:500;">(Optional — fill only if price is confirmed)</span></label>
+          <input type="number" id="turfCost" name="turfCost" placeholder="e.g. 1000" min="0" />
+          <span class="form-hint">We'll split this across players and show the per-person cost.</span>
+          <span class="field-error" id="turfCostError"></span>
         </div>
 
         <div class="field full">
@@ -1131,9 +1143,14 @@ input, select, textarea { font-family: var(--font-body); }
         <span class="field-error" id="editDateError"></span>
       </div>
       <div class="field" id="editTimeFieldWrap">
-        <label for="editTime">Time <span class="req">*</span></label>
-        <input type="time" id="editTime" />
-        <span class="field-error" id="editTimeError"></span>
+        <label for="editTimeFrom">From Time <span class="req">*</span></label>
+        <input type="time" id="editTimeFrom" />
+        <span class="field-error" id="editTimeFromError"></span>
+      </div>
+      <div class="field" id="editTimeToFieldWrap">
+        <label for="editTimeTo">To Time <span class="req">*</span></label>
+        <input type="time" id="editTimeTo" />
+        <span class="field-error" id="editTimeToError"></span>
       </div>
       <div class="checkbox-row">
         <input type="checkbox" id="editTimeTbd" />
@@ -1143,6 +1160,11 @@ input, select, textarea { font-family: var(--font-body); }
         <label for="editPlayersNeeded">Players Needed <span class="req">*</span></label>
         <input type="number" id="editPlayersNeeded" min="1" max="100" />
         <span class="field-error" id="editPlayersNeededError"></span>
+      </div>
+      <div class="field">
+        <label for="editTurfCost">Total Turf Cost <span class="form-hint" style="font-weight:500;">(Optional)</span></label>
+        <input type="number" id="editTurfCost" min="0" />
+        <span class="field-error" id="editTurfCostError"></span>
       </div>
       <div class="field">
         <label for="editWhatsapp">WhatsApp Group Link <span class="req">*</span></label>
@@ -1243,8 +1265,8 @@ input, select, textarea { font-family: var(--font-body); }
     // Returns a Date object representing match start, or null if TBD/invalid
     if (!match.date) return null;
     if (match.timeTbd) return null;
-    if (!match.time) return null;
-    const dt = new Date(`${match.date}T${match.time}`);
+    if (!match.timeFrom) return null;
+    const dt = new Date(`${match.date}T${match.timeFrom}`);
     if (isNaN(dt.getTime())) return null;
     return dt;
   }
@@ -1295,6 +1317,23 @@ input, select, textarea { font-family: var(--font-body); }
     const period = h >= 12 ? "PM" : "AM";
     const h12 = h % 12 === 0 ? 12 : h % 12;
     return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  }
+
+  function formatTimeRange(timeFrom, timeTo) {
+    if (!timeFrom && !timeTo) return "";
+    if (timeFrom && timeTo) return `${formatTime(timeFrom)} – ${formatTime(timeTo)}`;
+    return formatTime(timeFrom || timeTo);
+  }
+
+  function formatRupees(amount) {
+    return "₹" + Math.round(amount).toLocaleString("en-IN");
+  }
+
+  function getPerPersonCost(match) {
+    if (!match.turfCost || match.turfCost <= 0) return null;
+    const splitAmong = match.playersNeeded + 1; // host included in split
+    if (splitAmong <= 0) return null;
+    return match.turfCost / splitAmong;
   }
 
   function todayStr() {
@@ -1364,7 +1403,12 @@ input, select, textarea { font-family: var(--font-body); }
 
     const timeLine = match.timeTbd
       ? `<div class="meta-row"><span class="meta-icon">🕒</span><span>Time To Be Discussed</span></div>`
-      : `<div class="meta-row"><span class="meta-icon">🕒</span><span>${escapeHtml(formatTime(match.time))}</span></div>`;
+      : `<div class="meta-row"><span class="meta-icon">🕒</span><span>${escapeHtml(formatTimeRange(match.timeFrom, match.timeTo))}</span></div>`;
+
+    const perPerson = getPerPersonCost(match);
+    const costLine = perPerson !== null
+      ? `<div class="meta-row"><span class="meta-icon">💰</span><span>${formatRupees(match.turfCost)} total · <strong>${formatRupees(perPerson)}/person</strong></span></div>`
+      : "";
 
     const card = document.createElement("div");
     card.className = "match-card" + (status === "expired" ? " expired" : "");
@@ -1379,6 +1423,7 @@ input, select, textarea { font-family: var(--font-body); }
         <div class="meta-row"><span class="meta-icon">📅</span><span>${escapeHtml(formatDate(match.date))}</span></div>
         ${timeLine}
         <div class="meta-row"><span class="meta-icon">👥</span><span>Need ${match.playersNeeded} Players</span></div>
+        ${costLine}
       </div>
       <div class="joined-bar-wrap">
         <div class="joined-label"><span>🔥 Joined: ${joinedCount}/${match.playersNeeded}</span></div>
@@ -1541,15 +1586,21 @@ input, select, textarea { font-family: var(--font-body); }
     if (!data.date) { setFieldError("date", "Date is required."); valid = false; }
     else if (data.date < todayStr()) { setFieldError("date", "Date cannot be in the past."); valid = false; }
 
-    if (!data.timeTbd && !data.time) { setFieldError("time", "Time is required, or check Time To Be Discussed."); valid = false; }
+    if (!data.timeTbd) {
+      if (!data.timeFrom) { setFieldError("timeFrom", "From time is required, or check Time To Be Discussed."); valid = false; }
+      if (!data.timeTo) { setFieldError("timeTo", "To time is required, or check Time To Be Discussed."); valid = false; }
 
-    if (!data.date) {
-      // already handled
-    } else if (!data.timeTbd && data.time && data.date === todayStr()) {
-      const dt = new Date(`${data.date}T${data.time}`);
-      if (dt.getTime() <= Date.now()) {
-        setFieldError("time", "Selected time has already passed today.");
+      if (data.timeFrom && data.timeTo && data.timeTo <= data.timeFrom) {
+        setFieldError("timeTo", "To time must be after From time.");
         valid = false;
+      }
+
+      if (data.date && data.timeFrom && data.date === todayStr()) {
+        const dt = new Date(`${data.date}T${data.timeFrom}`);
+        if (dt.getTime() <= Date.now()) {
+          setFieldError("timeFrom", "Selected time has already passed today.");
+          valid = false;
+        }
       }
     }
 
@@ -1560,6 +1611,14 @@ input, select, textarea { font-family: var(--font-body); }
     } else if (playersNum > 100) {
       setFieldError("playersNeeded", "That seems too high. Try a smaller number.");
       valid = false;
+    }
+
+    if (data.turfCost.trim()) {
+      const costNum = Number(data.turfCost);
+      if (isNaN(costNum) || costNum < 0) {
+        setFieldError("turfCost", "Enter a valid amount, or leave this blank.");
+        valid = false;
+      }
     }
 
     if (!data.whatsapp.trim()) { setFieldError("whatsapp", "WhatsApp group link is required."); valid = false; }
@@ -1574,14 +1633,20 @@ input, select, textarea { font-family: var(--font-body); }
   function setupTimeTbdToggle() {
     const checkbox = document.getElementById("timeTbd");
     const timeField = document.getElementById("timeFieldWrap");
+    const timeToField = document.getElementById("timeToFieldWrap");
     checkbox.addEventListener("change", () => {
-      const timeInput = document.getElementById("time");
+      const timeFromInput = document.getElementById("timeFrom");
+      const timeToInput = document.getElementById("timeTo");
       if (checkbox.checked) {
         timeField.style.display = "none";
-        timeInput.value = "";
-        setFieldError("time", "");
+        timeToField.style.display = "none";
+        timeFromInput.value = "";
+        timeToInput.value = "";
+        setFieldError("timeFrom", "");
+        setFieldError("timeTo", "");
       } else {
         timeField.style.display = "";
+        timeToField.style.display = "";
       }
     });
   }
@@ -1595,9 +1660,11 @@ input, select, textarea { font-family: var(--font-body); }
       sport: formData.get("sport") || "",
       location: formData.get("location") || "",
       date: formData.get("date") || "",
-      time: formData.get("time") || "",
+      timeFrom: formData.get("timeFrom") || "",
+      timeTo: formData.get("timeTo") || "",
       timeTbd: document.getElementById("timeTbd").checked,
       playersNeeded: formData.get("playersNeeded") || "",
+      turfCost: formData.get("turfCost") || "",
       whatsapp: formData.get("whatsapp") || ""
     };
 
@@ -1615,9 +1682,11 @@ input, select, textarea { font-family: var(--font-body); }
       sport: data.sport,
       location: data.location.trim(),
       date: data.date,
-      time: data.timeTbd ? "" : data.time,
+      timeFrom: data.timeTbd ? "" : data.timeFrom,
+      timeTo: data.timeTbd ? "" : data.timeTo,
       timeTbd: data.timeTbd,
       playersNeeded: Number(data.playersNeeded),
+      turfCost: data.turfCost.trim() ? Number(data.turfCost) : null,
       whatsapp: data.whatsapp.trim(),
       joinedPlayers: [],
       createdAt: Date.now()
@@ -1627,6 +1696,7 @@ input, select, textarea { font-family: var(--font-body); }
     persist();
     createForm.reset();
     document.getElementById("timeFieldWrap").style.display = "";
+    document.getElementById("timeToFieldWrap").style.display = "";
     showCreateSuccessModal();
   }
 
@@ -1644,14 +1714,20 @@ input, select, textarea { font-family: var(--font-body); }
     const status = computeStatus(match);
     const icon = SPORT_ICON[match.sport] || "🎯";
 
+    const perPerson = getPerPersonCost(match);
+    const costRow = perPerson !== null
+      ? `<div class="modal-detail-row"><span class="meta-icon">💰</span><span>${formatRupees(match.turfCost)} total turf cost · <strong>${formatRupees(perPerson)}/person</strong></span></div>`
+      : `<div class="modal-detail-row"><span class="meta-icon">💰</span><span>Turf cost not confirmed yet</span></div>`;
+
     const body = document.getElementById("viewModalBody");
     body.innerHTML = `
       <div class="modal-detail-row"><span class="meta-icon">${icon}</span><span><strong>${escapeHtml(match.sport)}</strong></span></div>
       <div class="modal-detail-row"><span class="meta-icon">👤</span><span>Host: <strong>${escapeHtml(match.hostName)}</strong></span></div>
       <div class="modal-detail-row"><span class="meta-icon">📍</span><span>${escapeHtml(match.location)}</span></div>
       <div class="modal-detail-row"><span class="meta-icon">📅</span><span>${escapeHtml(formatDate(match.date))}</span></div>
-      <div class="modal-detail-row"><span class="meta-icon">🕒</span><span>${match.timeTbd ? "Time To Be Discussed" : escapeHtml(formatTime(match.time))}</span></div>
+      <div class="modal-detail-row"><span class="meta-icon">🕒</span><span>${match.timeTbd ? "Time To Be Discussed" : escapeHtml(formatTimeRange(match.timeFrom, match.timeTo))}</span></div>
       <div class="modal-detail-row"><span class="meta-icon">👥</span><span>Need ${match.playersNeeded} players · Joined ${match.joinedPlayers.length}/${match.playersNeeded}</span></div>
+      ${costRow}
       <div class="modal-detail-row"><span class="meta-icon">📶</span><span>Status: <strong>${status === "housefull" ? "Housefull 🔥" : status === "expired" ? "Expired" : "Open"}</strong></span></div>
       <div class="modal-divider"></div>
     `;
@@ -1779,12 +1855,15 @@ input, select, textarea { font-family: var(--font-body); }
     document.getElementById("editLocation").value = match.location;
     document.getElementById("editDate").value = match.date;
     document.getElementById("editTimeTbd").checked = match.timeTbd;
-    document.getElementById("editTime").value = match.time || "";
+    document.getElementById("editTimeFrom").value = match.timeFrom || "";
+    document.getElementById("editTimeTo").value = match.timeTo || "";
     document.getElementById("editTimeFieldWrap").style.display = match.timeTbd ? "none" : "";
+    document.getElementById("editTimeToFieldWrap").style.display = match.timeTbd ? "none" : "";
     document.getElementById("editPlayersNeeded").value = match.playersNeeded;
+    document.getElementById("editTurfCost").value = match.turfCost != null ? match.turfCost : "";
     document.getElementById("editWhatsapp").value = match.whatsapp;
 
-    ["editHostName", "editSport", "editLocation", "editDate", "editTime", "editPlayersNeeded", "editWhatsapp"].forEach((id) => setFieldError(id, ""));
+    ["editHostName", "editSport", "editLocation", "editDate", "editTimeFrom", "editTimeTo", "editPlayersNeeded", "editTurfCost", "editWhatsapp"].forEach((id) => setFieldError(id, ""));
 
     document.getElementById("editModalOverlay").classList.add("open");
   }
@@ -1799,9 +1878,11 @@ input, select, textarea { font-family: var(--font-body); }
       sport: document.getElementById("editSport").value,
       location: document.getElementById("editLocation").value,
       date: document.getElementById("editDate").value,
-      time: document.getElementById("editTime").value,
+      timeFrom: document.getElementById("editTimeFrom").value,
+      timeTo: document.getElementById("editTimeTo").value,
       timeTbd: document.getElementById("editTimeTbd").checked,
       playersNeeded: document.getElementById("editPlayersNeeded").value,
+      turfCost: document.getElementById("editTurfCost").value,
       whatsapp: document.getElementById("editWhatsapp").value
     };
 
@@ -1812,7 +1893,16 @@ input, select, textarea { font-family: var(--font-body); }
     if (!data.date) { setFieldError("editDate", "Required."); valid = false; }
     else if (data.date < todayStr()) { setFieldError("editDate", "Cannot be in the past."); valid = false; }
     else setFieldError("editDate", "");
-    if (!data.timeTbd && !data.time) { setFieldError("editTime", "Required, or check Time To Be Discussed."); valid = false; } else setFieldError("editTime", "");
+
+    if (!data.timeTbd) {
+      if (!data.timeFrom) { setFieldError("editTimeFrom", "Required, or check Time To Be Discussed."); valid = false; } else setFieldError("editTimeFrom", "");
+      if (!data.timeTo) { setFieldError("editTimeTo", "Required, or check Time To Be Discussed."); valid = false; }
+      else if (data.timeFrom && data.timeTo <= data.timeFrom) { setFieldError("editTimeTo", "To time must be after From time."); valid = false; }
+      else setFieldError("editTimeTo", "");
+    } else {
+      setFieldError("editTimeFrom", "");
+      setFieldError("editTimeTo", "");
+    }
 
     const playersNum = Number(data.playersNeeded);
     const currentJoined = match.joinedPlayers.length;
@@ -1821,6 +1911,14 @@ input, select, textarea { font-family: var(--font-body); }
     } else if (playersNum < currentJoined) {
       setFieldError("editPlayersNeeded", `Cannot be less than ${currentJoined} already joined.`); valid = false;
     } else setFieldError("editPlayersNeeded", "");
+
+    if (data.turfCost.trim()) {
+      const costNum = Number(data.turfCost);
+      if (isNaN(costNum) || costNum < 0) { setFieldError("editTurfCost", "Enter a valid amount, or leave blank."); valid = false; }
+      else setFieldError("editTurfCost", "");
+    } else {
+      setFieldError("editTurfCost", "");
+    }
 
     if (!data.whatsapp.trim()) { setFieldError("editWhatsapp", "Required."); valid = false; }
     else if (!/^https?:\/\/(chat\.whatsapp\.com|wa\.me)\//i.test(data.whatsapp.trim())) { setFieldError("editWhatsapp", "Enter a valid WhatsApp link."); valid = false; }
@@ -1833,8 +1931,10 @@ input, select, textarea { font-family: var(--font-body); }
     match.location = data.location.trim();
     match.date = data.date;
     match.timeTbd = data.timeTbd;
-    match.time = data.timeTbd ? "" : data.time;
+    match.timeFrom = data.timeTbd ? "" : data.timeFrom;
+    match.timeTo = data.timeTbd ? "" : data.timeTo;
     match.playersNeeded = Number(data.playersNeeded);
+    match.turfCost = data.turfCost.trim() ? Number(data.turfCost) : null;
     match.whatsapp = data.whatsapp.trim();
 
     persist();
@@ -2001,11 +2101,15 @@ input, select, textarea { font-family: var(--font-body); }
 
     document.getElementById("editTimeTbd").addEventListener("change", (e) => {
       const wrap = document.getElementById("editTimeFieldWrap");
+      const wrapTo = document.getElementById("editTimeToFieldWrap");
       if (e.target.checked) {
         wrap.style.display = "none";
-        document.getElementById("editTime").value = "";
+        wrapTo.style.display = "none";
+        document.getElementById("editTimeFrom").value = "";
+        document.getElementById("editTimeTo").value = "";
       } else {
         wrap.style.display = "";
+        wrapTo.style.display = "";
       }
     });
 

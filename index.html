@@ -1262,7 +1262,8 @@ input, select, textarea { font-family: var(--font-body); }
      Status computation
      ----------------------------------------------------------- */
   function getMatchDateTime(match) {
-    // Returns a Date object representing match start, or null if TBD/invalid
+    // Returns a Date object representing match START (From time), or null if TBD/invalid.
+    // Used for "Starting Soon" sort — NOT for expiry.
     if (!match.date) return null;
     if (match.timeTbd) return null;
     if (!match.timeFrom) return null;
@@ -1271,9 +1272,23 @@ input, select, textarea { font-family: var(--font-body); }
     return dt;
   }
 
+  function getExpiryDateTime(match) {
+    // Returns the Date at which this match should expire.
+    // - Timed match: expires at the From-time (match start), on the match date —
+    //   once the match has started, no one should be able to join.
+    // - TBD match: expires 24 hours after the match was created.
+    if (match.timeTbd) {
+      return new Date(match.createdAt + 24 * 60 * 60 * 1000);
+    }
+    if (!match.date || !match.timeFrom) return null;
+    const dt = new Date(`${match.date}T${match.timeFrom}`);
+    if (isNaN(dt.getTime())) return null;
+    return dt;
+  }
+
   function computeStatus(match) {
-    const dt = getMatchDateTime(match);
-    if (dt && dt.getTime() <= Date.now()) return "expired";
+    const expiryDt = getExpiryDateTime(match);
+    if (expiryDt && expiryDt.getTime() <= Date.now()) return "expired";
     if (match.joinedPlayers.length >= match.playersNeeded) return "housefull";
     return "open";
   }

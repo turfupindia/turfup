@@ -1555,7 +1555,13 @@ input, select, textarea { font-family: var(--font-body); }
     return data;
   }
 
+  async function declareToken(token) {
+    const { error } = await supabase.rpc("set_my_token", { token });
+    if (error) throw error;
+  }
+
   async function updateMatch(matchId, ownerToken, patch) {
+    await declareToken(ownerToken);
     const { data, error } = await supabase
       .from("matches")
       .update(patch)
@@ -1570,6 +1576,7 @@ input, select, textarea { font-family: var(--font-body); }
   }
 
   async function deleteMatchRow(matchId, ownerToken) {
+    await declareToken(ownerToken);
     const { data, error } = await supabase
       .from("matches")
       .delete()

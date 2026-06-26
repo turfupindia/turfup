@@ -802,7 +802,14 @@ input, select, textarea { font-family: var(--font-body); }
 .stat-num { font-family: var(--font-display); font-size: 1.7rem; font-weight: 700; }
 .stat-label { font-size: 0.74rem; color: var(--text-faint); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 
-.tab-row { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-row::-webkit-scrollbar { display: none; }
 .tab-btn {
   padding: 9px 18px;
   border-radius: var(--r-pill);
@@ -811,6 +818,8 @@ input, select, textarea { font-family: var(--font-body); }
   color: var(--text-dim);
   font-size: 0.85rem;
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tab-btn.active { background: var(--surface-2); color: var(--text); border-color: rgba(255,255,255,0.25); }
 
@@ -1093,6 +1102,7 @@ input, select, textarea { font-family: var(--font-body); }
     <div class="tab-row">
       <button class="tab-btn active" data-tab="active">Active</button>
       <button class="tab-btn" data-tab="expired">Expired</button>
+      <button class="tab-btn" data-tab="joined">Active Joined</button>
     </div>
 
     <div class="match-grid" id="myMatchesGrid"></div>
@@ -1512,6 +1522,8 @@ input, select, textarea { font-family: var(--font-body); }
     matches: [],
     matchesLoaded: false,
     matchesError: null,
+    myMatches: [],
+    myJoinedMatches: [],
     myMatchesLoaded: false,
     browse: {
       search: "",
@@ -1557,6 +1569,28 @@ input, select, textarea { font-family: var(--font-body); }
 
     if (error) throw error;
     return count || 0;
+  }
+
+  async function fetchMyJoinedMatches(deviceId) {
+    // Two-step fetch (no FK embed assumed): first get the match_ids
+    // this device has joined, then fetch those matches directly.
+    const { data: joinRows, error: joinErr } = await supabase
+      .from("match_participants")
+      .select("match_id")
+      .eq("player_token", deviceId);
+
+    if (joinErr) throw joinErr;
+    const matchIds = (joinRows || []).map((r) => r.match_id);
+    if (matchIds.length === 0) return [];
+
+    const { data: matches, error: matchErr } = await supabase
+      .from("matches")
+      .select("*")
+      .in("id", matchIds)
+      .order("created_at", { ascending: false });
+
+    if (matchErr) throw matchErr;
+    return matches || [];
   }
 
   async function insertMatch(payload) {
@@ -1778,6 +1812,52 @@ input, select, textarea { font-family: var(--font-body); }
     return card;
   }
 
+  function renderJoinedMatchCard(row) {
+    const status = computeStatus(row);
+    const icon = SPORT_ICON[row.sport] || "🎯";
+    const joinedCount = row.joined_count || 0;
+    const pct = Math.min(100, Math.round((joinedCount / row.players_needed) * 100));
+
+    let statusLabel, statusClass;
+    if (status === "housefull") { statusLabel = "🔥 Housefull"; statusClass = "status-housefull"; }
+    else { statusLabel = "Open"; statusClass = "status-open"; }
+
+    const timeLine = row.time_tbd
+      ? `<div class="meta-row"><span class="meta-icon">🕒</span><span>Time To Be Discussed</span></div>`
+      : `<div class="meta-row"><span class="meta-icon">🕒</span><span>${escapeHtml(formatTimeRange(row.time_from, row.time_to))}</span></div>`;
+
+    const perPerson = getPerPersonCost(row);
+    const costLine = perPerson !== null
+      ? `<div class="meta-row"><span class="meta-icon">💰</span><span>${formatRupees(row.turf_cost)} total · <strong>${formatRupees(perPerson)}/person</strong></span></div>`
+      : "";
+
+    const card = document.createElement("div");
+    card.className = "match-card";
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="sport-tag">${icon} ${escapeHtml(row.sport)}</span>
+        <span class="pill status-pill ${statusClass}">${statusLabel}</span>
+      </div>
+      <div class="card-host">Host: <strong>${escapeHtml(row.host_name)}</strong></div>
+      <div class="card-meta">
+        <div class="meta-row"><span class="meta-icon">📍</span><span>${escapeHtml(row.location)}</span></div>
+        <div class="meta-row"><span class="meta-icon">📅</span><span>${escapeHtml(formatDate(row.match_date))}</span></div>
+        ${timeLine}
+        <div class="meta-row"><span class="meta-icon">👥</span><span>Need ${row.players_needed} Players</span></div>
+        ${costLine}
+      </div>
+      <div class="joined-bar-wrap">
+        <div class="joined-label"><span>🔥 Joined: ${joinedCount}/${row.players_needed}</span></div>
+        <div class="joined-bar"><div class="joined-bar-fill ${status === 'housefull' ? 'full' : ''}" style="width:${pct}%"></div></div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-secondary btn-sm" data-action="view" data-id="${row.id}">View Details</button>
+        <button class="btn btn-primary btn-sm" data-action="view-whatsapp" data-id="${row.id}">💬 WhatsApp Link</button>
+      </div>
+    `;
+    return card;
+  }
+
   /* -----------------------------------------------------------
      Render: Browse Page
      ----------------------------------------------------------- */
@@ -1832,17 +1912,19 @@ input, select, textarea { font-family: var(--font-body); }
     }
 
     let myMatches;
-    let joinedCount = 0;
+    let joinedMatches = [];
     try {
       const [matches, joined] = await Promise.all([
         fetchMyMatches(DEVICE_ID),
-        fetchMyJoinedCount(DEVICE_ID).catch((e) => {
-          console.error("Failed to load joined count", e);
-          return 0;
+        fetchMyJoinedMatches(DEVICE_ID).catch((e) => {
+          console.error("Failed to load joined matches", e);
+          return [];
         })
       ]);
       myMatches = matches;
-      joinedCount = joined;
+      joinedMatches = joined;
+      state.myMatches = matches;
+      state.myJoinedMatches = joined;
       state.myMatchesLoaded = true;
     } catch (e) {
       console.error("Failed to load my matches", e);
@@ -1866,37 +1948,56 @@ input, select, textarea { font-family: var(--font-body); }
     const active = myMatches.filter((m) => computeStatus(m) === "active").length;
     const housefull = myMatches.filter((m) => computeStatus(m) === "housefull").length;
     const expired = myMatches.filter((m) => computeStatus(m) === "expired").length;
+    const activeJoined = joinedMatches.filter((m) => computeStatus(m) === "active" || computeStatus(m) === "housefull").length;
 
     document.getElementById("statTotal").textContent = total;
     document.getElementById("statActive").textContent = active;
     document.getElementById("statHousefull").textContent = housefull;
     document.getElementById("statExpired").textContent = expired;
-    document.getElementById("statJoined").textContent = joinedCount;
+    document.getElementById("statJoined").textContent = joinedMatches.length;
 
     let list;
+    let renderMode = "owner";
     if (state.myMatchesTab === "active") {
       list = myMatches.filter((m) => computeStatus(m) !== "expired" && computeStatus(m) !== "cancelled");
-    } else {
+    } else if (state.myMatchesTab === "expired") {
       list = myMatches.filter((m) => computeStatus(m) === "expired" || computeStatus(m) === "cancelled");
+    } else {
+      // "joined" tab: only matches still currently active/open
+      list = joinedMatches.filter((m) => {
+        const s = computeStatus(m);
+        return s === "active" || s === "housefull";
+      });
+      renderMode = "joined";
     }
     list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     grid.innerHTML = "";
 
     if (list.length === 0) {
+      const emptyCopy = {
+        active: { icon: "📋", title: "No matches yet", body: "Create a match and players nearby will start joining.", showCreate: true },
+        expired: { icon: "📋", title: "No expired matches", body: "Matches move here automatically once their time passes.", showCreate: false },
+        joined: { icon: "🤝", title: "No active joined matches", body: "Matches you've joined will show up here while they're still open — handy if you ever miss the WhatsApp link.", showCreate: false }
+      }[state.myMatchesTab];
+
       grid.innerHTML = `
         <div class="empty-state" style="grid-column: 1 / -1;">
-          <div class="empty-icon">📋</div>
-          <h3>${state.myMatchesTab === "active" ? "No matches yet" : "No expired matches"}</h3>
-          <p>${state.myMatchesTab === "active" ? "Create a match and players nearby will start joining." : "Matches move here automatically once their time passes."}</p>
-          ${state.myMatchesTab === "active" ? '<button class="btn btn-primary" id="emptyCreateBtn2">Create Match</button>' : ""}
+          <div class="empty-icon">${emptyCopy.icon}</div>
+          <h3>${emptyCopy.title}</h3>
+          <p>${emptyCopy.body}</p>
+          ${emptyCopy.showCreate ? '<button class="btn btn-primary" id="emptyCreateBtn2">Create Match</button>' : ""}
         </div>`;
       const btn = document.getElementById("emptyCreateBtn2");
       if (btn) btn.addEventListener("click", () => navigateTo("create"));
       return;
     }
 
-    list.forEach((m) => grid.appendChild(renderMatchCard(m, { showOwnerActions: true })));
+    if (renderMode === "joined") {
+      list.forEach((m) => grid.appendChild(renderJoinedMatchCard(m)));
+    } else {
+      list.forEach((m) => grid.appendChild(renderMatchCard(m, { showOwnerActions: true })));
+    }
   }
 
   /* -----------------------------------------------------------
@@ -2104,10 +2205,14 @@ input, select, textarea { font-family: var(--font-body); }
      View Details Modal
      ----------------------------------------------------------- */
   function findMatchById(matchId) {
-    return state.matches.find((m) => m.id === matchId);
+    return (
+      state.matches.find((m) => m.id === matchId) ||
+      state.myMatches.find((m) => m.id === matchId) ||
+      state.myJoinedMatches.find((m) => m.id === matchId)
+    );
   }
 
-  function openViewModal(matchId) {
+  async function openViewModal(matchId) {
     const match = findMatchById(matchId);
     if (!match) return;
     const status = computeStatus(match);
@@ -2132,8 +2237,20 @@ input, select, textarea { font-family: var(--font-body); }
     `;
 
     const footer = document.getElementById("viewModalFooter");
-    footer.innerHTML = "";
+    footer.innerHTML = `<div class="spinner" style="margin: 0 auto; display: block;"></div>`;
+    document.getElementById("viewModalOverlay").classList.add("open");
+
     const isOwner = match.owner_token === DEVICE_ID;
+    let alreadyJoined = false;
+    if (!isOwner) {
+      try {
+        alreadyJoined = await checkExistingJoinByToken(matchId, DEVICE_ID);
+      } catch (e) {
+        console.error("Failed to check existing join status", e);
+      }
+    }
+
+    footer.innerHTML = "";
     if (isOwner) {
       const note = document.createElement("p");
       note.style.color = "var(--text-faint)";
@@ -2141,6 +2258,23 @@ input, select, textarea { font-family: var(--font-body); }
       note.style.textAlign = "center";
       note.textContent = "This is your match — manage it from My Matches.";
       footer.appendChild(note);
+    } else if (alreadyJoined) {
+      const note = document.createElement("p");
+      note.style.color = "var(--text-faint)";
+      note.style.fontSize = "0.85rem";
+      note.style.textAlign = "center";
+      note.style.marginBottom = "12px";
+      note.textContent = "You've already joined this match.";
+      footer.appendChild(note);
+
+      const linkBtn = document.createElement("button");
+      linkBtn.className = "btn btn-primary btn-block";
+      linkBtn.textContent = "💬 View WhatsApp Link";
+      linkBtn.addEventListener("click", () => {
+        closeModal("viewModalOverlay");
+        openWhatsappRecoveryModal(matchId);
+      });
+      footer.appendChild(linkBtn);
     } else if (status === "active") {
       const joinBtn = document.createElement("button");
       joinBtn.className = "btn btn-primary btn-block";
@@ -2158,8 +2292,6 @@ input, select, textarea { font-family: var(--font-body); }
       note.textContent = status === "housefull" ? "This match is full. Try another one!" : "This match is no longer joinable.";
       footer.appendChild(note);
     }
-
-    document.getElementById("viewModalOverlay").classList.add("open");
   }
 
   /* -----------------------------------------------------------
@@ -2305,6 +2437,29 @@ input, select, textarea { font-family: var(--font-body); }
         <div class="success-icon">🎉</div>
         <h3>You're in!</h3>
         <p>Join the WhatsApp group and start playing.</p>
+        <div class="whatsapp-reveal">
+          <span>💬 WhatsApp Group</span>
+          <a href="${escapeHtml(match.whatsapp_link)}" target="_blank" rel="noopener noreferrer">Open Link →</a>
+        </div>
+        <button class="btn btn-secondary btn-block" id="joinSuccessCloseBtn">Done</button>
+      </div>
+    `;
+    document.getElementById("joinSuccessOverlay").classList.add("open");
+    document.getElementById("joinSuccessCloseBtn").addEventListener("click", () => closeModal("joinSuccessOverlay"));
+  }
+
+  function openWhatsappRecoveryModal(matchId) {
+    const match = findMatchById(matchId);
+    if (!match) {
+      showToast("Couldn't find that match's details. Try refreshing the page.", "error");
+      return;
+    }
+    const body = document.getElementById("joinSuccessBody");
+    body.innerHTML = `
+      <div class="success-box">
+        <div class="success-icon">💬</div>
+        <h3>You're already in this match</h3>
+        <p>Here's the WhatsApp group link again, in case you missed it.</p>
         <div class="whatsapp-reveal">
           <span>💬 WhatsApp Group</span>
           <a href="${escapeHtml(match.whatsapp_link)}" target="_blank" rel="noopener noreferrer">Open Link →</a>
@@ -2503,6 +2658,7 @@ input, select, textarea { font-family: var(--font-body); }
         else if (action === "join") openJoinModal(id);
         else if (action === "edit") openEditModal(id);
         else if (action === "delete") openDeleteModal(id);
+        else if (action === "view-whatsapp") openWhatsappRecoveryModal(id);
       });
     });
   }

@@ -788,7 +788,7 @@ input, select, textarea { font-family: var(--font-body); }
    =========================================================== */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 12px;
   margin: 20px 0 32px;
 }
@@ -973,6 +973,7 @@ input, select, textarea { font-family: var(--font-body); }
         <div class="field">
           <label for="playersNeeded">Players Needed <span class="req">*</span></label>
           <input type="number" id="playersNeeded" name="playersNeeded" placeholder="e.g. 5" min="1" max="100" />
+          <span class="form-hint">Don't count yourself — just how many other players you need.</span>
           <span class="field-error" id="playersNeededError"></span>
         </div>
 
@@ -1086,6 +1087,7 @@ input, select, textarea { font-family: var(--font-body); }
       <div class="stat-card"><div class="stat-num" id="statActive">0</div><div class="stat-label">Active</div></div>
       <div class="stat-card"><div class="stat-num" id="statHousefull">0</div><div class="stat-label">Housefull</div></div>
       <div class="stat-card"><div class="stat-num" id="statExpired">0</div><div class="stat-label">Expired</div></div>
+      <div class="stat-card"><div class="stat-num" id="statJoined">0</div><div class="stat-label">Joined</div></div>
     </div>
 
     <div class="tab-row">
@@ -1213,6 +1215,7 @@ input, select, textarea { font-family: var(--font-body); }
       <div class="field">
         <label for="editPlayersNeeded">Players Needed <span class="req">*</span></label>
         <input type="number" id="editPlayersNeeded" min="1" max="100" />
+        <span class="form-hint">Don't count yourself — just how many other players you need.</span>
         <span class="field-error" id="editPlayersNeededError"></span>
       </div>
       <div class="field">
@@ -1509,6 +1512,7 @@ input, select, textarea { font-family: var(--font-body); }
     matches: [],
     matchesLoaded: false,
     matchesError: null,
+    myMatchesLoaded: false,
     browse: {
       search: "",
       sport: "All",
@@ -1545,6 +1549,16 @@ input, select, textarea { font-family: var(--font-body); }
     return data || [];
   }
 
+  async function fetchMyJoinedCount(deviceId) {
+    const { count, error } = await supabase
+      .from("match_participants")
+      .select("id", { count: "exact", head: true })
+      .eq("player_token", deviceId);
+
+    if (error) throw error;
+    return count || 0;
+  }
+
   async function insertMatch(payload) {
     const { data, error } = await supabase
       .from("matches")
@@ -1555,19 +1569,12 @@ input, select, textarea { font-family: var(--font-body); }
     return data;
   }
 
-  async function declareToken(token) {
-    const { error } = await supabase.rpc("set_my_token", { token });
-    if (error) throw error;
-  }
-
   async function updateMatch(matchId, ownerToken, patch) {
-    await declareToken(ownerToken);
-    const { data, error } = await supabase
-      .from("matches")
-      .update(patch)
-      .eq("id", matchId)
-      .eq("owner_token", ownerToken)
-      .select();
+    const { data, error } = await supabase.rpc("update_match_if_owner", {
+      p_match_id: matchId,
+      p_owner_token: ownerToken,
+      p_patch: patch
+    });
     if (error) throw error;
     if (!data || data.length === 0) {
       throw new Error("Match not found or you don't have permission to edit it.");
@@ -1576,13 +1583,10 @@ input, select, textarea { font-family: var(--font-body); }
   }
 
   async function deleteMatchRow(matchId, ownerToken) {
-    await declareToken(ownerToken);
-    const { data, error } = await supabase
-      .from("matches")
-      .delete()
-      .eq("id", matchId)
-      .eq("owner_token", ownerToken)
-      .select();
+    const { data, error } = await supabase.rpc("delete_match_if_owner", {
+      p_match_id: matchId,
+      p_owner_token: ownerToken
+    });
     if (error) throw error;
     if (!data || data.length === 0) {
       throw new Error("Match not found or you don't have permission to delete it.");
@@ -1655,7 +1659,7 @@ input, select, textarea { font-family: var(--font-body); }
         );
       if (error) throw error;
     } catch (e) {
-      console.error("Failed to save user profile", e);
+      console.error("Failed to save user profile (name/phone prefill won't update):", e && e.message ? e.message : e);
       // non-fatal — prefill is a convenience, not a core function
     }
   }
@@ -1761,8 +1765,8 @@ input, select, textarea { font-family: var(--font-body); }
       </div>
       <div class="card-actions">
         <button class="btn btn-secondary btn-sm" data-action="view" data-id="${row.id}">View Details</button>
-        <button class="btn btn-primary btn-sm" data-action="join" data-id="${row.id}" ${status !== "active" ? "disabled" : ""}>
-          ${status === "housefull" ? "Housefull" : (status === "expired" || status === "cancelled") ? "Closed" : "Join Match"}
+        <button class="btn btn-primary btn-sm" data-action="join" data-id="${row.id}" ${(status !== "active" || isOwner) ? "disabled" : ""}>
+          ${isOwner ? "Your Match" : status === "housefull" ? "Housefull" : (status === "expired" || status === "cancelled") ? "Closed" : "Join Match"}
         </button>
       </div>
       ${isOwner && opts.showOwnerActions ? `
@@ -1781,8 +1785,14 @@ input, select, textarea { font-family: var(--font-body); }
     const grid = document.getElementById("browseGrid");
     const countEl = document.getElementById("resultsCount");
 
-    renderSkeletonCards(grid, 4);
-    countEl.textContent = "";
+    // Only blank the grid with skeletons the very first time we have
+    // nothing to show yet. On every later visit, keep showing the
+    // last-known cards while quietly refreshing in the background —
+    // avoids the blank/flicker flash on every page switch.
+    if (!state.matchesLoaded) {
+      renderSkeletonCards(grid, 4);
+      countEl.textContent = "";
+    }
 
     try {
       const rows = await fetchActiveMatches();
@@ -1792,76 +1802,24 @@ input, select, textarea { font-family: var(--font-body); }
     } catch (e) {
       console.error("Failed to load matches", e);
       state.matchesError = e;
-      grid.innerHTML = `
+      if (!state.matchesLoaded) {
+        grid.innerHTML = `
         <div class="empty-state" style="grid-column: 1 / -1;">
           <div class="empty-icon">⚠️</div>
           <h3>Couldn't load matches</h3>
           <p>Check your internet connection and try again.</p>
           <button class="btn btn-primary" id="retryBrowseBtn">Retry</button>
         </div>`;
-      const retryBtn = document.getElementById("retryBrowseBtn");
-      if (retryBtn) retryBtn.addEventListener("click", renderBrowse);
+        const retryBtn = document.getElementById("retryBrowseBtn");
+        if (retryBtn) retryBtn.addEventListener("click", renderBrowse);
+      } else {
+        showToast("Couldn't refresh matches — showing the last loaded results.", "error");
+      }
+      renderBrowseFromCache();
       return;
     }
 
-    let list = state.matches.filter((m) => {
-      const s = computeStatus(m);
-      return s !== "expired" && s !== "cancelled";
-    });
-
-    const q = state.browse.search.trim().toLowerCase();
-    if (q) {
-      list = list.filter(
-        (m) =>
-          (m.location || "").toLowerCase().includes(q) ||
-          (m.sport || "").toLowerCase().includes(q) ||
-          (m.host_name || "").toLowerCase().includes(q)
-      );
-    }
-
-    if (state.browse.sport !== "All") {
-      list = list.filter((m) => m.sport === state.browse.sport);
-    }
-
-    list = list.slice();
-    switch (state.browse.sort) {
-      case "oldest":
-        list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        break;
-      case "soonest":
-        list.sort((a, b) => {
-          const da = getMatchDateTime(a);
-          const db = getMatchDateTime(b);
-          if (!da && !db) return 0;
-          if (!da) return 1;
-          if (!db) return -1;
-          return da - db;
-        });
-        break;
-      case "mostNeeded":
-        list.sort((a, b) => (b.players_needed - (b.joined_count || 0)) - (a.players_needed - (a.joined_count || 0)));
-        break;
-      default: // newest
-        list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    }
-
-    countEl.textContent = list.length === 0 ? "" : `${list.length} match${list.length === 1 ? "" : "es"} found`;
-
-    grid.innerHTML = "";
-
-    if (list.length === 0) {
-      grid.innerHTML = `
-        <div class="empty-state" style="grid-column: 1 / -1;">
-          <div class="empty-icon">🏟️</div>
-          <h3>No matches found</h3>
-          <p>Try a different sport, search term, or be the first to create one nearby.</p>
-          <button class="btn btn-primary" id="emptyCreateBtn">Create Match</button>
-        </div>`;
-      document.getElementById("emptyCreateBtn").addEventListener("click", () => navigateTo("create"));
-      return;
-    }
-
-    list.forEach((m) => grid.appendChild(renderMatchCard(m, { showOwnerActions: true })));
+    renderBrowseFromCache();
   }
 
   /* -----------------------------------------------------------
@@ -1869,22 +1827,38 @@ input, select, textarea { font-family: var(--font-body); }
      ----------------------------------------------------------- */
   async function renderMyMatches() {
     const grid = document.getElementById("myMatchesGrid");
-    renderSkeletonCards(grid, 2);
+    if (!state.myMatchesLoaded) {
+      renderSkeletonCards(grid, 2);
+    }
 
     let myMatches;
+    let joinedCount = 0;
     try {
-      myMatches = await fetchMyMatches(DEVICE_ID);
+      const [matches, joined] = await Promise.all([
+        fetchMyMatches(DEVICE_ID),
+        fetchMyJoinedCount(DEVICE_ID).catch((e) => {
+          console.error("Failed to load joined count", e);
+          return 0;
+        })
+      ]);
+      myMatches = matches;
+      joinedCount = joined;
+      state.myMatchesLoaded = true;
     } catch (e) {
       console.error("Failed to load my matches", e);
-      grid.innerHTML = `
+      if (!state.myMatchesLoaded) {
+        grid.innerHTML = `
         <div class="empty-state" style="grid-column: 1 / -1;">
           <div class="empty-icon">⚠️</div>
           <h3>Couldn't load your matches</h3>
           <p>Check your internet connection and try again.</p>
           <button class="btn btn-primary" id="retryMyMatchesBtn">Retry</button>
         </div>`;
-      const retryBtn = document.getElementById("retryMyMatchesBtn");
-      if (retryBtn) retryBtn.addEventListener("click", renderMyMatches);
+        const retryBtn = document.getElementById("retryMyMatchesBtn");
+        if (retryBtn) retryBtn.addEventListener("click", renderMyMatches);
+      } else {
+        showToast("Couldn't refresh your matches — showing the last loaded results.", "error");
+      }
       return;
     }
 
@@ -1897,6 +1871,7 @@ input, select, textarea { font-family: var(--font-body); }
     document.getElementById("statActive").textContent = active;
     document.getElementById("statHousefull").textContent = housefull;
     document.getElementById("statExpired").textContent = expired;
+    document.getElementById("statJoined").textContent = joinedCount;
 
     let list;
     if (state.myMatchesTab === "active") {
@@ -2158,7 +2133,15 @@ input, select, textarea { font-family: var(--font-body); }
 
     const footer = document.getElementById("viewModalFooter");
     footer.innerHTML = "";
-    if (status === "active") {
+    const isOwner = match.owner_token === DEVICE_ID;
+    if (isOwner) {
+      const note = document.createElement("p");
+      note.style.color = "var(--text-faint)";
+      note.style.fontSize = "0.85rem";
+      note.style.textAlign = "center";
+      note.textContent = "This is your match — manage it from My Matches.";
+      footer.appendChild(note);
+    } else if (status === "active") {
       const joinBtn = document.createElement("button");
       joinBtn.className = "btn btn-primary btn-block";
       joinBtn.textContent = "Join Match";
@@ -2187,6 +2170,10 @@ input, select, textarea { font-family: var(--font-body); }
   function openJoinModal(matchId) {
     const match = findMatchById(matchId);
     if (!match) return;
+    if (match.owner_token === DEVICE_ID) {
+      showToast("You can't join your own match.", "error");
+      return;
+    }
     const status = computeStatus(match);
     if (status !== "active") {
       showToast(status === "housefull" ? "This match is already housefull." : "This match is no longer joinable.", "error");
@@ -2294,7 +2281,10 @@ input, select, textarea { font-family: var(--font-body); }
     } catch (err) {
       console.error("Failed to join match", err);
       const msg = (err && err.message) || "";
-      if (msg.toLowerCase().includes("housefull") || msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("cancelled")) {
+      if (msg.toLowerCase().includes("own match")) {
+        showToast("You can't join your own match.", "error");
+        closeModal("joinModalOverlay");
+      } else if (msg.toLowerCase().includes("housefull") || msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("cancelled")) {
         showToast(msg, "error");
         closeModal("joinModalOverlay");
         renderBrowse();

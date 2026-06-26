@@ -834,6 +834,18 @@ input, select, textarea { font-family: var(--font-body); }
   font-size: 0.85rem;
 }
 .footer strong { color: var(--text-dim); }
+.footer-contact {
+  margin-top: 10px;
+}
+.footer-contact a {
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+.footer-contact a:hover {
+  color: var(--green);
+}
 
 /* ===========================================================
    Responsive
@@ -936,10 +948,6 @@ input, select, textarea { font-family: var(--font-body); }
       </div>
     </div>
   </section>
-
-  <footer class="footer">
-    <p><strong>TurfUp</strong> — Never Cancel a Match Again. <br/>📍 Live only in Kanpur.</p>
-  </footer>
 </main>
 
 <!-- ============================================================
@@ -1108,6 +1116,11 @@ input, select, textarea { font-family: var(--font-body); }
     <div class="match-grid" id="myMatchesGrid"></div>
   </div>
 </main>
+
+<footer class="footer">
+  <p><strong>TurfUp</strong> — Never Cancel a Match Again. <br/>📍 Live only in Kanpur.</p>
+  <p class="footer-contact">Contact Us: <a href="mailto:turfupindia@gmail.com">turfupindia@gmail.com</a></p>
+</footer>
 
 <!-- ============================================================
      MODAL: CREATE SUCCESS
@@ -1522,6 +1535,7 @@ input, select, textarea { font-family: var(--font-body); }
     matches: [],
     matchesLoaded: false,
     matchesError: null,
+    lastBrowseSignature: null,
     myMatches: [],
     myJoinedMatches: [],
     myMatchesLoaded: false,
@@ -2743,6 +2757,18 @@ input, select, textarea { font-family: var(--font-body); }
     }
 
     countEl.textContent = list.length === 0 ? "" : `${list.length} match${list.length === 1 ? "" : "es"} found`;
+
+    // Build a lightweight signature of what should be on screen (id +
+    // joined_count + status-affecting fields) and skip touching the DOM
+    // at all if nothing actually changed. Without this, the 30-second
+    // background refresh rebuilds every card from scratch each time —
+    // even when nothing changed — which is what causes the flicker.
+    const signature = list.map((m) => `${m.id}:${m.joined_count}:${m.status}`).join("|");
+    if (signature === state.lastBrowseSignature) {
+      return;
+    }
+    state.lastBrowseSignature = signature;
+
     grid.innerHTML = "";
 
     if (list.length === 0) {

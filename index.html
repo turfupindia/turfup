@@ -2883,7 +2883,7 @@ input, select, textarea { font-family: var(--font-body); }
   document.addEventListener("DOMContentLoaded", init);
 })();
 </script>
-   <!-- ============================================================
+  <!-- ============================================================
      BETA NOTICE — START
      Delete this whole block (from here to "BETA NOTICE — END")
      to remove the notice completely. Nothing else in the site
@@ -2994,16 +2994,6 @@ input, select, textarea { font-family: var(--font-body); }
 <script>
 (function () {
   "use strict";
-  var SEEN_KEY = "turfup_beta_notice_seen_v1";
-
-  // Remove the two lines below (try/catch + the "if" check) instead of
-  // the whole block if you want this to show on EVERY visit, not once.
-  try {
-    if (localStorage.getItem(SEEN_KEY)) return;
-  } catch (e) {
-    // localStorage unavailable (e.g. strict private browsing) —
-    // fall through and show the notice anyway rather than erroring.
-  }
 
   document.addEventListener("DOMContentLoaded", function () {
     var overlay = document.getElementById("betaNoticeOverlay");
@@ -3025,11 +3015,6 @@ input, select, textarea { font-family: var(--font-body); }
     btn.addEventListener("click", function () {
       if (!btn.classList.contains("ready")) return;
       overlay.classList.remove("open");
-      try {
-        localStorage.setItem(SEEN_KEY, "1");
-      } catch (e) {
-        // non-fatal — worst case it shows again next visit
-      }
     });
   });
 })();
@@ -3037,6 +3022,7 @@ input, select, textarea { font-family: var(--font-body); }
 <!-- ============================================================
      BETA NOTICE — END
 ============================================================ -->
+
 
 </body>
 </html>

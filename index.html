@@ -2883,5 +2883,160 @@ input, select, textarea { font-family: var(--font-body); }
   document.addEventListener("DOMContentLoaded", init);
 })();
 </script>
+   <!-- ============================================================
+     BETA NOTICE — START
+     Delete this whole block (from here to "BETA NOTICE — END")
+     to remove the notice completely. Nothing else in the site
+     depends on it.
+============================================================ -->
+<style>
+  /* Only NEW styles below — the card itself reuses your site's
+     existing .modal-overlay / .modal classes, so it looks and
+     behaves exactly like your other popups (Join, Delete, etc). */
+
+  #betaNoticeOverlay .modal {
+    text-align: center;
+  }
+  #betaNoticeOverlay .beta-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--green-soft);
+    color: var(--green);
+    font-size: 1.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+  }
+  #betaNoticeOverlay h3 {
+    font-size: 1.15rem;
+    margin-bottom: 10px;
+  }
+  #betaNoticeOverlay p {
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    margin-bottom: 22px;
+    text-align: left;
+  }
+  #betaNoticeOverlay a {
+    color: var(--blue);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  /* Grey rounded button that fills with your brand gradient,
+     left to right, over 5 seconds — clickable only once full. */
+  #betaGotItBtn {
+    position: relative;
+    width: 100%;
+    padding: 14px 24px;
+    border-radius: var(--r-pill);
+    border: none;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: not-allowed;
+    overflow: hidden;
+    color: var(--text-dim);
+    background: var(--surface-2);
+  }
+  #betaGotItBtn .fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background: var(--gradient);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 5s linear;
+  }
+  #betaGotItBtn .label {
+    position: relative;
+    z-index: 1;
+    transition: color 0.3s ease;
+  }
+  #betaGotItBtn.filling .fill {
+    transform: scaleX(1);
+  }
+  #betaGotItBtn.ready {
+    cursor: pointer;
+  }
+  #betaGotItBtn.ready .label {
+    color: #06080a;
+  }
+  #betaGotItBtn.ready:hover {
+    opacity: 0.92;
+  }
+</style>
+
+<div class="modal-overlay" id="betaNoticeOverlay">
+  <div class="modal">
+    <div class="beta-icon">🚧</div>
+    <h3 style="text-align:center;">We're still in beta</h3>
+    <p>
+      TurfUp is brand new and still being tested. If something looks
+      off or you hit a bug, tell us at
+      <a href="mailto:turfupindia@gmail.com">turfupindia@gmail.com</a> —
+      it genuinely helps. And if you've got friends who play, send them
+      this link. It's by players, for players, and it only works if we
+      all use it together.
+    </p>
+    <button id="betaGotItBtn">
+      <span class="fill"></span>
+      <span class="label">Got it</span>
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var SEEN_KEY = "turfup_beta_notice_seen_v1";
+
+  // Remove the two lines below (try/catch + the "if" check) instead of
+  // the whole block if you want this to show on EVERY visit, not once.
+  try {
+    if (localStorage.getItem(SEEN_KEY)) return;
+  } catch (e) {
+    // localStorage unavailable (e.g. strict private browsing) —
+    // fall through and show the notice anyway rather than erroring.
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var overlay = document.getElementById("betaNoticeOverlay");
+    var btn = document.getElementById("betaGotItBtn");
+    if (!overlay || !btn) return;
+
+    overlay.classList.add("open");
+
+    // Start the 5-second fill a beat after opening, so the animation
+    // is visible rather than instant.
+    setTimeout(function () {
+      btn.classList.add("filling");
+    }, 50);
+
+    setTimeout(function () {
+      btn.classList.add("ready");
+    }, 5050);
+
+    btn.addEventListener("click", function () {
+      if (!btn.classList.contains("ready")) return;
+      overlay.classList.remove("open");
+      try {
+        localStorage.setItem(SEEN_KEY, "1");
+      } catch (e) {
+        // non-fatal — worst case it shows again next visit
+      }
+    });
+  });
+})();
+</script>
+<!-- ============================================================
+     BETA NOTICE — END
+============================================================ -->
+
 </body>
 </html>
